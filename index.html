@@ -29,7 +29,8 @@ canvas{width:100%;display:block;border:1px solid var(--line);border-radius:8px;m
 <p class="sub">Hittar skotten i en film, tar bort kamerans rörelse och lägger rekylerna ovanpå varandra. Allt körs i webbläsaren, ingenting laddas upp.</p>
 <section>
 <div class="row"><label class="btn p" style="position:relative;overflow:hidden">Välj video<input id="file" type="file" accept="video/*,.mp4,.mov" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0"></label><button id="live">Live-kamera</button></div>
-<div class="row" id="lrow"><span class="hint">Live-kamera:</span> bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
+<div class="row" id="lrow"><span class="hint">Live-kamera:</span> bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · upplösning <select id="lres" style="min-height:40px"><option value="640">640</option><option value="1280" selected>1280</option><option value="1920">1920</option></select> · kamera <select id="lcam" style="min-height:40px;max-width:180px"><option value="">Bakkamera</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
+<div class="row" id="lzrow" hidden>Zoom <input type="range" id="lzoom" min="1" max="10" step="0.1" value="1"> <b id="lzv">1×</b></div>
 <div class="hint" id="nocam" hidden></div>
 <div id="stage" hidden>
 <div class="vw" id="vw"><video id="vid" playsinline muted></video><div id="roi"></div></div>
@@ -195,8 +196,10 @@ document.addEventListener('visibilitychange',()=>{if(live&&document.visibilitySt
 $('#live').onclick=async()=>{if(live){stopLive();return}
  $('#nocam').hidden=true;
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder||!vid.requestVideoFrameCallback){nocam();return}
- let s;
- try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',frameRate:{ideal:+$('#lfps').value},width:{ideal:1280}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}catch(e){nocam(e);return}
+ let s;const dev=$('#lcam').value,gum=c=>navigator.mediaDevices.getUserMedia(c),
+  vc=()=>Object.assign({width:{ideal:+$('#lres').value},frameRate:{ideal:+$('#lfps').value}},dev?{deviceId:{exact:dev}}:{facingMode:'environment'}),
+  au={echoCancellation:false,noiseSuppression:false,autoGainControl:false};
+ try{s=await gum({video:Object.assign(vc(),{zoom:true}),audio:au})}catch(e){try{s=await gum({video:vc(),audio:au})}catch(e2){nocam(e2);return}}
  if(!s.getAudioTracks().length){s.getTracks().forEach(t=>t.stop());$('#info').textContent='Ingen mikrofon hittades. Ljudet behövs för att hitta skottögonblicket.';return}
  reset();stopLive();vid.removeAttribute('src');vid.srcObject=s;vid.muted=true;
  try{await vid.play()}catch(e){}
@@ -204,15 +207,24 @@ $('#live').onclick=async()=>{if(live){stopLive();return}
  const an=ac.createAnalyser();an.fftSize=2048;ac.createMediaStreamSource(s).connect(an);
  LV={stream:s,ac,an,buf:new Float32Array(an.fftSize),base:.005,lvl:0,thr:0,lastBang:-9,pending:[],segs:[],acc:0,rej:0,last:'',fr:0,mime:pickMime(),recErr:''};
  live=true;await loadSaved();
- const st=s.getVideoTracks()[0].getSettings();
+ const vt=s.getVideoTracks()[0],st=vt.getSettings();
+ try{const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'),sl=$('#lcam');
+  sl.innerHTML='<option value="">Bakkamera (standard)</option>'+ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'Kamera '+(i+1)}</option>`).join('');sl.value=dev||''}catch(e){}
+ try{const cap=vt.getCapabilities?vt.getCapabilities():{},z=$('#lzoom');
+  if(cap.zoom){z.min=cap.zoom.min;z.max=cap.zoom.max;z.step=cap.zoom.step||.1;z.value=st.zoom||cap.zoom.min;$('#lzv').textContent=(+z.value).toFixed(1).replace('.',',')+'×';$('#lzrow').hidden=false}
+  else{$('#lzrow').hidden=true;LV.recErr='zoom saknas för den här kameran, prova en annan i kameralistan'}}catch(e){}
  $('#stage').hidden=false;$('#run').hidden=true;$('#aud').hidden=true;$('#spd').parentElement.hidden=true;$('#live').textContent='Stoppa live';roi=null;$('#roi').style.display='none';
  $('#hint').textContent='Ställ kameran stilla på stativ och tryck på korn/sikte. Resten sker automatiskt, bara skott sparas.';
  startSeg();LV.i1=setInterval(startSeg,3000);wake();
  LV.i2=setInterval(()=>{if(!live)return;const rate=T.length>60?Math.round(60/Math.max(.01,T[T.length-1]-T[T.length-61])):0;
   $('#info').textContent=`Live ${st.width}×${st.height}, ≈${rate} bilder/s · ljud ${f2(LV.lvl)} (gräns ${f2(LV.thr)}) · skott ${LV.acc} · förkastade ${LV.rej}${LV.last?' (senast: '+LV.last+')':''}${roi?'':' · markera sikte!'}${LV.recErr?' · '+LV.recErr:''}`},500);
  vid.requestVideoFrameCallback(liveLoop)};
+$('#lcam').onchange=$('#lres').onchange=()=>{if(live){stopLive();$('#live').click()}};
+$('#lzoom').oninput=()=>{const tr=vid.srcObject&&vid.srcObject.getVideoTracks()[0],v=+$('#lzoom').value;$('#lzv').textContent=v.toFixed(1).replace('.',',')+'×';
+ if(tr)tr.applyConstraints({advanced:[{zoom:v}]}).catch(()=>{$('#lzv').textContent+=' (stöds ej)'})};
+$('#lzoom').onchange=()=>{roi=null;prev=null;$('#roi').style.display='none';[T,gx,gy,rx,ry].forEach(a=>a.length=0);$('#hint').textContent='Zoomen ändrad. Tryck på siktet igen.'};
 function stopLive(){if(!live&&!LV)return;live=false;if(LV){clearInterval(LV.i1);clearInterval(LV.i2);LV.segs.slice().forEach(g=>{try{g.rec.state!=='inactive'&&g.rec.stop()}catch(e){}});try{LV.ac.close()}catch(e){}LV.stream.getTracks().forEach(t=>t.stop());LV=null}
- try{wakeL&&wakeL.release()}catch(e){}vid.srcObject=null;$('#live').textContent='Live-kamera';$('#aud').hidden=false}
+ try{wakeL&&wakeL.release()}catch(e){}vid.srcObject=null;$('#live').textContent='Live-kamera';$('#aud').hidden=false;$('#lzrow').hidden=true}
 let cancel=false;
 $('#run').onclick=async()=>{
  if(!roi){$('#hint').textContent='Markera först korn/sikte genom att trycka på det i bilden.';return}
