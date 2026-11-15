@@ -29,7 +29,7 @@ canvas{width:100%;display:block;border:1px solid var(--line);border-radius:8px;m
 <p class="sub">Hittar skotten i en film, tar bort kamerans rörelse och lägger rekylerna ovanpå varandra. Allt körs i webbläsaren, ingenting laddas upp.</p>
 <section>
 <div class="row"><label class="btn p" style="position:relative;overflow:hidden">Välj video<input id="file" type="file" accept="video/*,.mp4,.mov" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0"></label><button id="live">Live-kamera</button></div>
-<div class="row" id="lrow"><span class="hint">Live-kamera:</span> <label><input type="checkbox" id="lrec" checked> spara klipp</label> · bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · upplösning <select id="lres" style="min-height:40px"><option value="640">640</option><option value="1280" selected>1280</option><option value="1920">1920</option></select> · kamera <select id="lcam" style="min-height:40px;max-width:180px"><option value="">Bakkamera</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
+<div class="row" id="lrow"><span class="hint">Live-kamera:</span> <label><input type="checkbox" id="lrec" checked> spara klipp</label> · <label><input type="checkbox" id="lgpu" checked> snabb bildhämtning</label> · bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · upplösning <select id="lres" style="min-height:40px"><option value="640">640</option><option value="1280" selected>1280</option><option value="1920">1920</option></select> · kamera <select id="lcam" style="min-height:40px;max-width:180px"><option value="">Bakkamera</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
 <div class="row" id="lzrow" hidden>Zoom <input type="range" id="lzoom" min="1" max="10" step="0.1" value="1"> <b id="lzv">1×</b></div>
 <div class="hint" id="nocam" hidden></div>
 <div id="stage" hidden>
@@ -51,7 +51,8 @@ canvas{width:100%;display:block;border:1px solid var(--line);border-radius:8px;m
 <section id="clips" hidden><h2>Sparat klipp</h2><video id="clipv" controls playsinline></video><p class="hint">Klippet är cirka 6 sekunder runt skottet och spelas i halv hastighet. Spara ner det med ⬇ i listan.</p></section>
 </main>
 <script>
-const $=s=>document.querySelector(s),W=192,N=85,vid=$('#vid'),cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+const $=s=>document.querySelector(s),W=192,N=85,vid=$('#vid');let cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+function useCanvas(gpu){cv=document.createElement('canvas');cx=cv.getContext('2d',gpu?{}:{willReadFrequently:true});prev=null}
 const T=[],gx=[],gy=[],rx=[],ry=[],shots=[];
 let roi=null,prev=null,sel=-1,live=false,lastT=0,timer=0;
 const f2=v=>v.toFixed(2).replace('.',',');
@@ -184,7 +185,8 @@ function evalBang(tb){const r=assess(tb,relMot(),+$('#sens').value/100,false);
  idbDo('readwrite',st=>st.put({id:sh.id,wall:sh.wall,tr:sh.tr,score:'',blob:null})).catch(()=>{});
  if(seg)seg.keep=sh;else{sh.noclip=true}
  render()}
-function liveLoop(now){if(!live||!LV)return;const t=now/1000;lastT=t;feed(vid,t);
+function liveLoop(now,md){if(!live||!LV)return;const t=now/1000;lastT=t;const f0=performance.now();feed(vid,t);LV.ms+=(performance.now()-f0-LV.ms)*.05;
+ if(md&&md.presentedFrames!==undefined){if(!LV.pf0||t-LV.pf0[0]>2){if(LV.pf0)LV.cam=(md.presentedFrames-LV.pf0[1])/(t-LV.pf0[0]);LV.pf0=[t,md.presentedFrames]}}
  LV.an.getFloatTimeDomainData(LV.buf);let pk=0;for(let i=0;i<LV.buf.length;i++){const v=Math.abs(LV.buf[i]);if(v>pk)pk=v}
  LV.lvl=pk;const thr=Math.max(+$('#lthr').value,LV.base*6);LV.thr=thr;
  if(pk>thr){if(t-LV.lastBang>.5)LV.pending.push(t);LV.lastBang=t}else LV.base+=(pk-LV.base)*.003;
@@ -205,7 +207,7 @@ $('#live').onclick=async()=>{if(live){stopLive();return}
  try{await vid.play()}catch(e){}
  const AC=window.AudioContext||window.webkitAudioContext,ac=new AC();try{await ac.resume()}catch(e){}
  const an=ac.createAnalyser();an.fftSize=2048;ac.createMediaStreamSource(s).connect(an);
- LV={stream:s,ac,an,buf:new Float32Array(an.fftSize),base:.005,lvl:0,thr:0,lastBang:-9,pending:[],segs:[],acc:0,rej:0,last:'',fr:0,mime:pickMime(),recErr:''};
+ useCanvas($('#lgpu').checked);LV={ms:0,cam:0,stream:s,ac,an,buf:new Float32Array(an.fftSize),base:.005,lvl:0,thr:0,lastBang:-9,pending:[],segs:[],acc:0,rej:0,last:'',fr:0,mime:pickMime(),recErr:''};
  live=true;await loadSaved();
  const vt=s.getVideoTracks()[0],st=vt.getSettings();
  try{const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&!/front|user|selfie|fram/i.test(d.label)),sl=$('#lcam');
@@ -217,14 +219,14 @@ $('#live').onclick=async()=>{if(live){stopLive();return}
  $('#hint').textContent='Ställ kameran stilla på stativ och tryck på korn/sikte. Resten sker automatiskt, bara skott sparas.';
  startSeg();LV.i1=setInterval(startSeg,3000);wake();
  LV.i2=setInterval(()=>{if(!live)return;const rate=T.length>60?Math.round(60/Math.max(.01,T[T.length-1]-T[T.length-61])):0;
-  $('#info').textContent=`Live ${st.width}×${st.height}, ≈${rate} bilder/s · ljud ${f2(LV.lvl)} (gräns ${f2(LV.thr)}) · skott ${LV.acc} · förkastade ${LV.rej}${LV.last?' (senast: '+LV.last+')':''}${roi?'':' · markera sikte!'}${LV.recErr?' · '+LV.recErr:''}`},500);
+  $('#info').textContent=`Live ${st.width}×${st.height}, kamera ≈${Math.round(LV.cam)}/s, analys ≈${rate}/s (${LV.ms.toFixed(0)} ms/bild) · ljud ${f2(LV.lvl)} (gräns ${f2(LV.thr)}) · skott ${LV.acc} · förkastade ${LV.rej}${LV.last?' (senast: '+LV.last+')':''}${roi?'':' · markera sikte!'}${LV.recErr?' · '+LV.recErr:''}`},500);
  vid.requestVideoFrameCallback(liveLoop)};
 $('#lcam').onchange=$('#lres').onchange=()=>{if(live){stopLive();$('#live').click()}};
 $('#lzoom').oninput=()=>{const tr=vid.srcObject&&vid.srcObject.getVideoTracks()[0],v=+$('#lzoom').value;$('#lzv').textContent=v.toFixed(1).replace('.',',')+'×';
  if(tr)tr.applyConstraints({advanced:[{zoom:v}]}).catch(()=>{$('#lzv').textContent+=' (stöds ej)'})};
 $('#lzoom').onchange=()=>{roi=null;prev=null;$('#roi').style.display='none';[T,gx,gy,rx,ry].forEach(a=>a.length=0);$('#hint').textContent='Zoomen ändrad. Tryck på siktet igen.'};
 function stopLive(){if(!live&&!LV)return;live=false;if(LV){clearInterval(LV.i1);clearInterval(LV.i2);LV.segs.slice().forEach(g=>{try{g.rec.state!=='inactive'&&g.rec.stop()}catch(e){}});try{LV.ac.close()}catch(e){}LV.stream.getTracks().forEach(t=>t.stop());LV=null}
- try{wakeL&&wakeL.release()}catch(e){}vid.srcObject=null;$('#live').textContent='Live-kamera';$('#aud').hidden=false;$('#lzrow').hidden=true}
+ try{wakeL&&wakeL.release()}catch(e){}vid.srcObject=null;useCanvas(false);$('#live').textContent='Live-kamera';$('#aud').hidden=false;$('#lzrow').hidden=true}
 let cancel=false;
 $('#run').onclick=async()=>{
  if(!roi){$('#hint').textContent='Markera först korn/sikte genom att trycka på det i bilden.';return}
