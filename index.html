@@ -208,7 +208,7 @@ $('#live').onclick=async()=>{if(live){stopLive();return}
  LV={stream:s,ac,an,buf:new Float32Array(an.fftSize),base:.005,lvl:0,thr:0,lastBang:-9,pending:[],segs:[],acc:0,rej:0,last:'',fr:0,mime:pickMime(),recErr:''};
  live=true;await loadSaved();
  const vt=s.getVideoTracks()[0],st=vt.getSettings();
- try{const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'),sl=$('#lcam');
+ try{const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&!/front|user|selfie|fram/i.test(d.label)),sl=$('#lcam');
   sl.innerHTML='<option value="">Bakkamera (standard)</option>'+ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'Kamera '+(i+1)}</option>`).join('');sl.value=dev||''}catch(e){}
  try{const cap=vt.getCapabilities?vt.getCapabilities():{},z=$('#lzoom');
   if(cap.zoom){z.min=cap.zoom.min;z.max=cap.zoom.max;z.step=cap.zoom.step||.1;z.value=st.zoom||cap.zoom.min;$('#lzv').textContent=(+z.value).toFixed(1).replace('.',',')+'×';$('#lzrow').hidden=false}
