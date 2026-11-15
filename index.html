@@ -29,7 +29,7 @@ canvas{width:100%;display:block;border:1px solid var(--line);border-radius:8px;m
 <p class="sub">Hittar skotten i en film, tar bort kamerans rörelse och lägger rekylerna ovanpå varandra. Allt körs i webbläsaren, ingenting laddas upp.</p>
 <section>
 <div class="row"><label class="btn p" style="position:relative;overflow:hidden">Välj video<input id="file" type="file" accept="video/*,.mp4,.mov" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0"></label><button id="live">Live-kamera</button></div>
-<div class="row" id="lrow"><span class="hint">Live-kamera:</span> <label><input type="checkbox" id="lrec" checked> spara klipp</label> · <label><input type="checkbox" id="lgpu" checked> snabb bildhämtning</label> · bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · upplösning <select id="lres" style="min-height:40px"><option value="640">640</option><option value="1280" selected>1280</option><option value="1920">1920</option></select> · kamera <select id="lcam" style="min-height:40px;max-width:180px"><option value="">Bakkamera</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
+<div class="row" id="lrow"><span class="hint">Live-kamera:</span> <label><input type="checkbox" id="lrec" checked> spara klipp</label> · <label><input type="checkbox" id="lgpu" checked> snabb bildhämtning</label> · bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · upplösning <select id="lres" style="min-height:40px"><option value="640" selected>640</option><option value="1280">1280</option><option value="1920">1920</option></select> · kamera <select id="lcam" style="min-height:40px;max-width:180px"><option value="">Bakkamera</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
 <div class="row" id="lzrow" hidden>Zoom <input type="range" id="lzoom" min="1" max="10" step="0.1" value="1"> <b id="lzv">1×</b></div>
 <div class="hint" id="nocam" hidden></div>
 <div id="stage" hidden>
@@ -316,4 +316,8 @@ $('#aud').onclick=async()=>{
 $('#strict').onchange=()=>$('#sens').oninput();
 addEventListener('resize',()=>{if(shots.length)draw(stats())});
 loadSaved();
+(()=>{const ids=['lres','lfps','lthr','lrec','lgpu','sens','strict'];
+ try{const sv=JSON.parse(localStorage.getItem('rekylSet')||'{}');ids.forEach(i=>{const e=$('#'+i);if(e&&sv[i]!==undefined){if(e.type==='checkbox')e.checked=sv[i];else e.value=sv[i]}});$('#sv').textContent=f2($('#sens').value/100)}catch(e){}
+ ids.forEach(i=>$('#'+i).addEventListener('change',()=>{try{const o={};ids.forEach(j=>{const e=$('#'+j);o[j]=e.type==='checkbox'?e.checked:e.value});localStorage.setItem('rekylSet',JSON.stringify(o))}catch(e){}}));
+ $('#sens').addEventListener('input',()=>$('#sens').dispatchEvent(new Event('change')))})();
 </script></body></html>
