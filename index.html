@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="sv"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Rekylanalys</title>
+<style>
+:root{--bg:#f6f5f1;--fg:#1d2227;--mut:#6b7480;--card:#fff;--line:#d9d6cd;--acc:#c2410c;--blue:#1d4ed8;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171a;--fg:#e8e6e1;--mut:#9aa3ad;--card:#1d2227;--line:#343b42;--acc:#fb923c;--blue:#7aa2ff}}
+:root[data-theme="dark"]{--bg:#14171a;--fg:#e8e6e1;--mut:#9aa3ad;--card:#1d2227;--line:#343b42;--acc:#fb923c;--blue:#7aa2ff}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:1.5rem;margin:.2em 0}h2{font-size:1.1rem;margin:1.2em 0 .4em}
+.sub,.hint,#info{color:var(--mut);font-size:.9rem;margin:.3em 0}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
+button,.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit;cursor:pointer}
+button.p,.btn.p{background:var(--acc);border-color:var(--acc);color:#fff}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.vw{position:relative;line-height:0}video{width:100%;max-height:60vh;background:#000;border-radius:8px;display:block;object-fit:contain}
+#roi{position:absolute;border:2px solid var(--acc);border-radius:4px;pointer-events:none;display:none}
+progress{width:100%}input[type=range]{flex:1;min-width:140px}
+ul{list-style:none;margin:0;padding:0}li{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+li.sel{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}li span{color:var(--mut);font-size:.88rem;flex:1;min-width:150px}
+li input{width:92px;min-height:40px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);padding:0 8px;font:inherit}
+li button{min-height:40px;padding:0 12px}
+canvas{width:100%;display:block;border:1px solid var(--line);border-radius:8px;margin:8px 0}
+[hidden]{display:none!important}
+</style></head><body><main>
+<h1>Rekylanalys</h1>
+<p class="sub">Hittar skotten i en film, tar bort kamerans rörelse och lägger rekylerna ovanpå varandra. Allt körs i webbläsaren, ingenting laddas upp.</p>
+<section>
+<div class="row"><label class="btn p" style="position:relative;overflow:hidden">Välj video<input id="file" type="file" accept="video/*,.mp4,.mov" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0"></label><button id="live">Live-kamera</button></div>
+<div class="row" id="lrow"><span class="hint">Live-kamera:</span> bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
+<div class="hint" id="nocam" hidden></div>
+<div id="stage" hidden>
+<div class="vw" id="vw"><video id="vid" playsinline muted></video><div id="roi"></div></div>
+<p class="hint" id="hint">1. Tryck på korn/sikte i bilden för att markera vad som ska följas.</p>
+<div class="row"><button class="p" id="run">Analysera filmen</button><button id="aud">Hitta skott via ljud</button>
+<label class="row" style="margin:0">Från <input id="t0" type="number" value="0" min="0" step="0.5" style="width:70px;min-height:40px"> till <input id="t1" type="number" value="0" min="0" step="0.5" style="width:70px;min-height:40px"> s · <input id="fps" type="number" value="60" style="width:64px;min-height:40px"> bilder/s · Hastighet <select id="aspd" style="min-height:40px"><option value="1" selected>1×</option><option value="0.5">0,5×</option><option value="0.25">0,25×</option></select> · Krav <select id="strict" style="min-height:40px"><option value="0.2" selected>strikt</option><option value="0.33">normal</option><option value="0.5">mild</option></select><span id="spd"></span></label></div>
+<label class="row">Känslighet (lägre = fler skott)<input type="range" id="sens" min="10" max="150" value="25"><b id="sv">0,25</b></label>
+<progress id="prog" value="0" max="1" hidden></progress><p id="info"></p>
+<details id="dbg" hidden><summary>Ljudknallar och bedömning</summary><pre id="dbgt" style="white-space:pre-wrap;font-size:.85rem"></pre></details>
+</div></section>
+<section id="res" hidden>
+<h2>Skott</h2><ul id="list"></ul>
+<p class="hint" id="empty">Inga skott hittade än. Sänk känsligheten eller kontrollera markeringen.</p>
+<h2>Rekylbana (sikte mot bakgrund)</h2><canvas id="c1"></canvas>
+<h2>Avvikelse över tid</h2><canvas id="c2"></canvas>
+<p class="hint">Heldragen tjock linje = valt skott, tunna = övriga, streckad = snitt. Skalan är bildpunkter i analysbilden (192 px bred). Tid 0 är skottet.</p>
+</section>
+<section id="clips" hidden><h2>Sparat klipp</h2><video id="clipv" controls playsinline></video><p class="hint">Klippet är cirka 6 sekunder runt skottet och spelas i halv hastighet. Spara ner det med ⬇ i listan.</p></section>
+</main>
+<script>
+const $=s=>document.querySelector(s),W=192,N=85,vid=$('#vid'),cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
+const T=[],gx=[],gy=[],rx=[],ry=[],shots=[];
+let roi=null,prev=null,sel=-1,live=false,lastT=0,timer=0;
+const f2=v=>v.toFixed(2).replace('.',',');
+function lk(a,b,w,h,x0,y0,x1,y1,mk){let xx=0,xy=0,yy=0,xt=0,yt=0;
+ for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){
+  if(mk&&x>=mk[0]&&x<mk[2]&&y>=mk[1]&&y<mk[3])continue;
+  const i=y*w+x,ix=(a[i+1]-a[i-1]+b[i+1]-b[i-1])/4,iy=(a[i+w]-a[i-w]+b[i+w]-b[i-w])/4,it=b[i]-a[i];
+  xx+=ix*ix;xy+=ix*iy;yy+=iy*iy;xt+=ix*it;yt+=iy*it}
+ const d=xx*yy-xy*xy+1e-6,c=v=>Math.max(-6,Math.min(6,v));
+ return[c(-(yy*xt-xy*yt)/d),c(-(xx*yt-xy*xt)/d)]}
+function feed(src,t){
+ const vw=src.videoWidth,vh=src.videoHeight;if(!vw)return;
+ const h=Math.round(W*vh/vw);if(cv.width!==W||cv.height!==h){cv.width=W;cv.height=h;prev=null}
+ cx.drawImage(src,0,0,W,h);const d=cx.getImageData(0,0,W,h).data,g=new Float32Array(W*h);
+ for(let i=0,j=0;i<g.length;i++,j+=4)g[i]=.3*d[j]+.59*d[j+1]+.11*d[j+2];
+ if(prev&&roi){const R=16,px=Math.round(roi.x*W),py=Math.round(roi.y*h),
+  x0=Math.max(2,px-R),x1=Math.min(W-2,px+R),y0=Math.max(2,py-R),y1=Math.min(h-2,py+R);
+  const a=lk(prev,g,W,h,2,2,W-2,h-2,[x0,y0,x1,y1]),b=lk(prev,g,W,h,x0,y0,x1,y1,null);
+  T.push(t);gx.push(a[0]);gy.push(a[1]);rx.push(b[0]);ry.push(b[1])}
+ prev=g}
+function track(t0){const pt=[],px=[],py=[];let sx=0,sy=0;
+ for(let i=0;i<T.length;i++){if(T[i]<t0-.62)continue;if(T[i]>t0+.82)break;
+  sx+=rx[i]-gx[i];sy+=ry[i]-gy[i];pt.push(T[i]-t0);px.push(sx);py.push(sy)}
+ if(pt.length<3)return null;let bx=0,by=0,n=0;
+ pt.forEach((q,i)=>{if(q<-.1){bx+=px[i];by+=py[i];n++}});if(n){bx/=n;by/=n}
+ const x=[],y=[];
+ for(let k=0;k<N;k++){const tt=-.6+k/60;let j=0;while(j<pt.length-2&&pt[j+1]<tt)j++;
+  const f=Math.max(0,Math.min(1,(tt-pt[j])/((pt[j+1]-pt[j])||1)));
+  x.push(px[j]+(px[j+1]-px[j])*f-bx);y.push(py[j]+(py[j+1]-py[j])*f-by)}
+ return{x,y}}
+function detect(){const n=T.length;if(n<30)return false;
+ const thr=+$('#sens').value/100,m=relMot();let add=false;
+ for(let i=2;i<n-2;i++){
+  if(m[i]<thr||m[i]<m[i-1]||m[i]<m[i+1])continue;
+  const t=T[i];if(t+.75>T[n-1]||shots.some(s=>Math.abs(s.t-t)<1.5))continue;
+  let pre=0,ps=0,pn=0;
+  for(let j=i-1;j>=0&&T[j]>t-.7;j--)if(T[j]<t-.15)pre=Math.max(pre,m[j]);
+  for(let j=i+1;j<n&&T[j]<t+.7;j++)if(T[j]>t+.3){ps+=m[j];pn++}
+  if(pre<thr*.4&&pn&&ps/pn<thr*.5){const tr=track(t);if(tr){shots.push({t,tr,score:''});add=true}}}
+ if(add)shots.sort((a,b)=>a.t-b.t);return add}
+function stats(){const k=shots.length;if(!k)return null;const mx=Array(N).fill(0),my=Array(N).fill(0);
+ shots.forEach(s=>{for(let i=0;i<N;i++){mx[i]+=s.tr.x[i]/k;my[i]+=s.tr.y[i]/k}});
+ shots.forEach(s=>{let a=0,p=0;for(let i=0;i<N;i++){a+=(s.tr.x[i]-mx[i])**2+(s.tr.y[i]-my[i])**2;if(i>=36)p=Math.max(p,Math.hypot(s.tr.x[i],s.tr.y[i]))}
+  s.dev=Math.sqrt(a/N);s.pk=p});return{mx,my}}
+function render(){$('#res').hidden=false;$('#empty').hidden=shots.length>0;const st=stats();
+ const mxd=shots.length>2?Math.max(...shots.map(s=>s.dev)):-1;
+ $('#list').innerHTML=shots.map((s,i)=>`<li data-i="${i}" class="${i===sel?'sel':''}"><b>Skott ${i+1}</b><span>${s.wall?new Date(s.wall).toLocaleTimeString('sv-SE'):f2(s.t)+' s'} · topp ${f2(s.pk)} · avv. från snitt ${shots.length>1?f2(s.dev):'–'}${s.dev===mxd?' · störst':''}</span><input data-i="${i}" inputmode="decimal" placeholder="Resultat" value="${s.score}"><button data-play="${i}">▶</button>${s.id?(s.clip||s.blob?`<button data-dl="${i}">⬇</button>`:'<em class="hint">sparar klipp…</em>'):''}<button data-del="${i}">✕</button></li>`).join('');
+ draw(st)}
+function sz(c){const d=window.devicePixelRatio||1,w=c.clientWidth;c.width=w*d;c.height=(c===$('#c1')?w:w*.5)*d;c.style.height=(c===$('#c1')?w:w*.5)+'px';const g=c.getContext('2d');g.setTransform(d,0,0,d,0,0);return[g,w,c.height/d]}
+function draw(st){const css=getComputedStyle(document.documentElement),col=n=>css.getPropertyValue(n).trim();
+ let mx=.4;shots.forEach(s=>s.tr.x.forEach((v,i)=>{mx=Math.max(mx,Math.abs(v),Math.abs(s.tr.y[i]))}));
+ let [g,w,h]=sz($('#c1')),sc=w*.45/mx;g.clearRect(0,0,w,h);g.strokeStyle=col('--line');g.lineWidth=1;
+ g.beginPath();g.moveTo(w/2,0);g.lineTo(w/2,h);g.moveTo(0,h/2);g.lineTo(w,h/2);g.stroke();
+ g.fillStyle=col('--mut');g.font='12px system-ui';g.fillText('upp',w/2+4,12);g.fillText('höger',w-40,h/2-4);
+ const path=(x,y,s)=>{g.beginPath();x.forEach((v,i)=>{const X=w/2+v*sc,Y=h/2+y[i]*sc;i?g.lineTo(X,Y):g.moveTo(X,Y)});g.stroke()};
+ shots.forEach((s,i)=>{if(i===sel)return;g.strokeStyle=col('--mut');g.globalAlpha=.55;g.lineWidth=1.2;path(s.tr.x,s.tr.y)});g.globalAlpha=1;
+ if(st&&shots.length>1){g.strokeStyle=col('--fg');g.lineWidth=2;g.setLineDash([6,4]);path(st.mx,st.my);g.setLineDash([])}
+ if(shots[sel]){g.strokeStyle=col('--acc');g.lineWidth=3;path(shots[sel].tr.x,shots[sel].tr.y)}
+ [g,w,h]=sz($('#c2'));const mg=Math.max(.4,...shots.map(s=>Math.max(...s.tr.x.map((v,i)=>Math.hypot(v,s.tr.y[i]))))),ts=(a)=>a.map(v=>v);
+ g.clearRect(0,0,w,h);const X=i=>i/(N-1)*w,Y=v=>h-4-v/mg*(h-12);g.strokeStyle=col('--line');g.beginPath();g.moveTo(X(36),0);g.lineTo(X(36),h);g.stroke();
+ const line=(m)=>{g.beginPath();m.forEach((v,i)=>i?g.lineTo(X(i),Y(v)):g.moveTo(X(i),Y(v)));g.stroke()};
+ const mag=s=>s.tr.x.map((v,i)=>Math.hypot(v,s.tr.y[i]));
+ shots.forEach((s,i)=>{if(i===sel)return;g.strokeStyle=col('--mut');g.globalAlpha=.55;g.lineWidth=1.2;line(mag(s))});g.globalAlpha=1;
+ if(st&&shots.length>1){g.strokeStyle=col('--fg');g.lineWidth=2;g.setLineDash([6,4]);line(st.mx.map((v,i)=>Math.hypot(v,st.my[i])));g.setLineDash([])}
+ if(shots[sel]){g.strokeStyle=col('--acc');g.lineWidth=3;line(mag(shots[sel]))}}
+$('#list').onclick=e=>{const b=e.target,li=b.closest('li');if(!li)return;const i=+li.dataset.i;
+ if(b.dataset.del!==undefined){const d=shots[i];shots.splice(i,1);sel=-1;if(d.id)idbDo('readwrite',st=>st.delete(d.id)).catch(()=>{});render();return}
+ if(b.dataset.dl!==undefined){dlClip(i);return}
+ if(b.dataset.play!==undefined){sel=i;render();if(shots[i].id&&(shots[i].clip||shots[i].blob))showClip(i);else review(i);return}
+ if(b.tagName!=='INPUT'){sel=i;render()}};
+$('#list').oninput=e=>{if(e.target.tagName==='INPUT'){const sh=shots[+e.target.dataset.i];sh.score=e.target.value;if(sh.id)idbUpd(sh.id,r=>{r.score=sh.score;return r}).catch(()=>{})}};
+function review(i){if(live||!vid.src)return;vid.pause();vid.playbackRate=.25;vid.currentTime=Math.max(0,shots[i].t-.4);vid.play();setTimeout(()=>vid.pause(),4800)}
+$('#vw').onclick=e=>{const r=vid.getBoundingClientRect(),b=document.getElementById('roi');
+ const vw=vid.videoWidth||1,vh=vid.videoHeight||1,s=Math.min(r.width/vw,r.height/vh),dw=vw*s,dh=vh*s,ox=(r.width-dw)/2,oy=(r.height-dh)/2;
+ const x=(e.clientX-r.left-ox)/dw,y=(e.clientY-r.top-oy)/dh;if(x<0||x>1||y<0||y>1)return;roi={x,y};
+ const hw=16/W,hh=16/(W*vh/vw);b.style.cssText=`display:block;left:${ox+(x-hw)*dw}px;top:${oy+(y-hh)*dh}px;width:${2*hw*dw}px;height:${2*hh*dh}px`;
+ $('#hint').textContent='Markerat. Tryck på Analysera (eller vänta, i live-läge).'};
+function reset(){[T,gx,gy,rx,ry,shots].forEach(a=>a.length=0);sel=-1;prev=null;aCands=null;aRep=[];aScreen.clear();$('#dbg').hidden=true}
+$('#file').onchange=e=>{const f=e.target.files[0];if(!f)return;stopLive();vid.srcObject=null;vid.preload='auto';vid.src=URL.createObjectURL(f);vid.load();setTimeout(()=>{if(!vid.videoWidth)$('#info').textContent='Filmen kunde inte visas. Troligen använder den ett format som webbläsaren inte kan avkoda (till exempel 4K eller HEVC/H.265). Filma i H.264 (iPhone: Inställningar > Kamera > Format > Mest kompatibel) eller välj en annan fil.'},3000);vid.onerror=()=>{$('#info').textContent='Webbläsaren kunde inte läsa filmen (format eller codec saknas). Välj en H.264-film.'};
+ $('#stage').hidden=false;$('#run').hidden=false;$('#spd').parentElement.hidden=false;vid.onloadeddata=()=>{vid.currentTime=.05;$('#t1').value=vid.duration.toFixed(1)};
+ roi=null;$('#roi').style.display='none';$('#hint').textContent='1. Tryck på korn/sikte i bilden för att markera vad som ska följas.';$('#info').textContent=''};
+$('#run').onclick=async()=>{
+ if(!roi){$('#hint').textContent='Markera först korn/sikte genom att trycka på det i bilden.';return}
+ if(!vid.requestVideoFrameCallback){$('#info').textContent='Webbläsaren saknar stöd för bildruteanalys. Prova Chrome eller Safari (nyare version).';return}
+ reset();$('#res').hidden=true;$('#prog').hidden=false;vid.currentTime=0;vid.playbackRate=+$('#spd').value;
+ try{await vid.play()}catch(e){$('#info').textContent='Kunde inte spela upp filmen.';return}
+ $('#info').textContent='Analyserar… filmen spelas upp i vald hastighet.';
+ let wall=performance.now(),done=false,wl=null;try{wl=await navigator.wakeLock.request('screen')}catch(e){}
+ const fin=why=>{if(done)return;done=true;clearInterval(wd);try{wl&&wl.release()}catch(e){}$('#prog').hidden=true;const fps=T.length/((T[T.length-1]-T[0])||1);detect();$('#info').textContent=`${why} ${T.length} bildrutor analyserade (≈${Math.round(fps)} bilder/s). Hittade ${shots.length} skott. Ta bort felaktiga med ✕.`;render()};
+ const step=(n,md)=>{wall=performance.now();try{feed(vid,md.mediaTime)}catch(e){}$('#prog').value=vid.currentTime/vid.duration;if(!done&&!vid.ended)vid.requestVideoFrameCallback(step)};
+ vid.requestVideoFrameCallback(step);
+ const wd=setInterval(()=>{if(vid.ended)return;const idle=performance.now()-wall;if(idle>1500&&vid.paused)vid.play().catch(()=>{});if(idle>6000)fin('Analysen avbröts efter '+Math.round(vid.currentTime)+' av '+Math.round(vid.duration)+' sekunder. Visar det som hann analyseras.')},1000);
+ vid.onended=()=>fin('Klart.')};
+$('#sens').oninput=()=>{$('#sv').textContent=f2($('#sens').value/100);if(!live&&T.length>30){shots.length=0;sel=-1;if(aCands){detectAudio(aCands);showDbg(aCands)}else detect();render()}};
+// ---------- Sparade klipp (IndexedDB) ----------
+const idb=()=>new Promise((res,rej)=>{if(!window.indexedDB)return rej(new Error('ingen IndexedDB'));const r=indexedDB.open('rekyl',1);r.onupgradeneeded=()=>r.result.createObjectStore('clips',{keyPath:'id'});r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+async function idbDo(mode,fn){const d=await idb();return new Promise((res,rej)=>{const tx=d.transaction('clips',mode),rq=fn(tx.objectStore('clips'));tx.oncomplete=()=>res(rq&&rq.result);tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error)})}
+const idbUpd=(id,fn)=>idbDo('readwrite',st=>{const g=st.get(id);g.onsuccess=()=>{if(g.result)st.put(fn(g.result))}});
+let clipUrl='';
+async function loadSaved(){try{const all=await idbDo('readonly',st=>st.getAll());if(!all||!all.length)return;
+ all.sort((a,b)=>a.wall-b.wall).forEach(r=>{if(!shots.some(x=>x.id===r.id))shots.push({t:0,wall:r.wall,tr:r.tr,score:r.score||'',id:r.id,clip:!!r.blob})});
+ shots.sort((a,b)=>(a.wall||0)-(b.wall||0));render()}catch(e){}}
+async function clipBlob(i){const sh=shots[i];if(sh.blob)return{blob:sh.blob,mime:sh.mime};const r=await idbDo('readonly',st=>st.get(sh.id));return r&&r.blob?{blob:r.blob,mime:r.mime}:null}
+async function showClip(i){const c=await clipBlob(i);if(!c)return;if(clipUrl)URL.revokeObjectURL(clipUrl);clipUrl=URL.createObjectURL(c.blob);
+ const v=$('#clipv');v.src=clipUrl;v.playbackRate=.5;$('#clips').hidden=false;v.onloadeddata=()=>{v.playbackRate=.5};v.play().catch(()=>{});$('#clips').scrollIntoView({block:'nearest'})}
+async function dlClip(i){const c=await clipBlob(i);if(!c)return;const u=URL.createObjectURL(c.blob),a=document.createElement('a'),ext=(c.mime||'').includes('mp4')?'mp4':'webm';
+ a.href=u;a.download='skott-'+new Date(shots[i].wall).toISOString().slice(0,19).replace(/[:T]/g,'-')+'.'+ext;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}
+
+// ---------- Live-kamera ----------
+let LV=null,wakeL=null;
+function nocam(e){const inFrame=window.top!==window.self;
+ $('#nocam').hidden=false;$('#nocam').innerHTML=inFrame?'<b>Kameran är blockerad här.</b> Live-läget kan inte köras inbäddat på claude.ai. Öppna filen <b>rekyl-live.html</b> direkt i webbläsaren (Chrome eller Safari) så fungerar kameran och mikrofonen.':'<b>Kameran eller mikrofonen kunde inte startas'+(e&&e.name?' ('+e.name+')':'')+'.</b> Tillåt kamera och mikrofon för sidan i webbläsaren. Sidan måste vara öppnad via https:// eller som en lokal fil.'}
+const pickMime=()=>{try{return['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'].find(m=>MediaRecorder.isTypeSupported(m))||''}catch(e){return''}};
+function startSeg(){if(!live||!LV)return;const t=performance.now()/1000,seg={s:t,e:t+6,chunks:[],keep:null};let rec;
+ try{rec=new MediaRecorder(LV.stream,LV.mime?{mimeType:LV.mime,videoBitsPerSecond:3e6}:{})}catch(e){LV.recErr='Kan inte spela in klipp: '+e.message;return}
+ rec.ondataavailable=e=>{if(e.data&&e.data.size)seg.chunks.push(e.data)};
+ rec.onstop=()=>{if(LV)LV.segs=LV.segs.filter(x=>x!==seg);if(seg.keep)saveClip(seg)};
+ try{rec.start(1000)}catch(e){LV.recErr='Kan inte spela in klipp: '+e.message;return}
+ seg.rec=rec;LV.segs.push(seg);setTimeout(()=>{try{if(rec.state!=='inactive')rec.stop()}catch(e){}},6000)}
+async function saveClip(seg){const sh=seg.keep,mime=seg.rec.mimeType||'video/webm',blob=new Blob(seg.chunks,{type:mime});
+ try{await idbUpd(sh.id,r=>{r.blob=blob;r.mime=mime;return r});sh.clip=true}catch(e){sh.blob=blob;sh.mime=mime}
+ const k=shots.indexOf(sh);if(k>=0)render()}
+function evalBang(tb){const r=assess(tb,relMot(),+$('#sens').value/100,false);
+ if(!r.ok){LV.rej++;LV.last=r.reason;return}
+ if(shots.some(x=>x.wall&&Math.abs(x.t-r.t)<1.5&&x.live))return;
+ const tr=track(r.t);if(!tr){LV.rej++;LV.last='för lite data';return}
+ const sh={t:r.t,live:true,wall:Date.now(),tr,score:'',id:Date.now().toString(36)+Math.random().toString(36).slice(2,6)};
+ let seg=null;LV.segs.forEach(g=>{if(g.s<=r.t-1.5&&g.e>=r.t+1.5&&(!seg||g.s>seg.s))seg=g});
+ shots.push(sh);shots.sort((a,b)=>(a.wall||0)-(b.wall||0));sel=shots.indexOf(sh);LV.acc++;
+ idbDo('readwrite',st=>st.put({id:sh.id,wall:sh.wall,tr:sh.tr,score:'',blob:null})).catch(()=>{});
+ if(seg)seg.keep=sh;else{sh.noclip=true}
+ render()}
+function liveLoop(now){if(!live||!LV)return;const t=now/1000;lastT=t;feed(vid,t);
+ LV.an.getFloatTimeDomainData(LV.buf);let pk=0;for(let i=0;i<LV.buf.length;i++){const v=Math.abs(LV.buf[i]);if(v>pk)pk=v}
+ LV.lvl=pk;const thr=Math.max(+$('#lthr').value,LV.base*6);LV.thr=thr;
+ if(pk>thr){if(t-LV.lastBang>.5)LV.pending.push(t);LV.lastBang=t}else LV.base+=(pk-LV.base)*.003;
+ while(LV.pending.length&&LV.pending[0]+1.2<=t)evalBang(LV.pending.shift());
+ if(++LV.fr%30===0){const k=T.findIndex(v=>v>t-10);if(k>0)[T,gx,gy,rx,ry].forEach(a=>a.splice(0,k))}
+ vid.requestVideoFrameCallback(liveLoop)}
+async function wake(){try{wakeL=await navigator.wakeLock.request('screen')}catch(e){}}
+document.addEventListener('visibilitychange',()=>{if(live&&document.visibilityState==='visible')wake()});
+$('#live').onclick=async()=>{if(live){stopLive();return}
+ $('#nocam').hidden=true;
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder||!vid.requestVideoFrameCallback){nocam();return}
+ let s;
+ try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',frameRate:{ideal:+$('#lfps').value},width:{ideal:1280}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}catch(e){nocam(e);return}
+ if(!s.getAudioTracks().length){s.getTracks().forEach(t=>t.stop());$('#info').textContent='Ingen mikrofon hittades. Ljudet behövs för att hitta skottögonblicket.';return}
+ reset();stopLive();vid.removeAttribute('src');vid.srcObject=s;vid.muted=true;
+ try{await vid.play()}catch(e){}
+ const AC=window.AudioContext||window.webkitAudioContext,ac=new AC();try{await ac.resume()}catch(e){}
+ const an=ac.createAnalyser();an.fftSize=2048;ac.createMediaStreamSource(s).connect(an);
+ LV={stream:s,ac,an,buf:new Float32Array(an.fftSize),base:.005,lvl:0,thr:0,lastBang:-9,pending:[],segs:[],acc:0,rej:0,last:'',fr:0,mime:pickMime(),recErr:''};
+ live=true;await loadSaved();
+ const st=s.getVideoTracks()[0].getSettings();
+ $('#stage').hidden=false;$('#run').hidden=true;$('#aud').hidden=true;$('#spd').parentElement.hidden=true;$('#live').textContent='Stoppa live';roi=null;$('#roi').style.display='none';
+ $('#hint').textContent='Ställ kameran stilla på stativ och tryck på korn/sikte. Resten sker automatiskt, bara skott sparas.';
+ startSeg();LV.i1=setInterval(startSeg,3000);wake();
+ LV.i2=setInterval(()=>{if(!live)return;const rate=T.length>60?Math.round(60/Math.max(.01,T[T.length-1]-T[T.length-61])):0;
+  $('#info').textContent=`Live ${st.width}×${st.height}, ≈${rate} bilder/s · ljud ${f2(LV.lvl)} (gräns ${f2(LV.thr)}) · skott ${LV.acc} · förkastade ${LV.rej}${LV.last?' (senast: '+LV.last+')':''}${roi?'':' · markera sikte!'}${LV.recErr?' · '+LV.recErr:''}`},500);
+ vid.requestVideoFrameCallback(liveLoop)};
+function stopLive(){if(!live&&!LV)return;live=false;if(LV){clearInterval(LV.i1);clearInterval(LV.i2);LV.segs.slice().forEach(g=>{try{g.rec.state!=='inactive'&&g.rec.stop()}catch(e){}});try{LV.ac.close()}catch(e){}LV.stream.getTracks().forEach(t=>t.stop());LV=null}
+ try{wakeL&&wakeL.release()}catch(e){}vid.srcObject=null;$('#live').textContent='Live-kamera';$('#aud').hidden=false}
+let cancel=false;
+$('#run').onclick=async()=>{
+ if(!roi){$('#hint').textContent='Markera först korn/sikte genom att trycka på det i bilden.';return}
+ if($('#run').dataset.busy){cancel=true;return}
+ $('#run').dataset.busy=1;$('#run').textContent='Avbryt';cancel=false;
+ reset();$('#res').hidden=true;$('#prog').hidden=false;vid.pause();
+ const fps=+$('#fps').value||60,a=Math.max(0,+$('#t0').value||0),b=Math.min(vid.duration,+$('#t1').value||vid.duration),n=Math.max(2,Math.floor((b-a)*fps));
+ const seek=t=>new Promise(r=>{const h=()=>{vid.removeEventListener('seeked',h);r()};vid.addEventListener('seeked',h);vid.currentTime=t;setTimeout(h,2500)});
+ let wl=null;try{wl=await navigator.wakeLock.request('screen')}catch(e){}
+ const t0=performance.now();
+ await seek(a);vid.playbackRate=.25;$('#info').textContent='Analyserar…';let wd;
+ await new Promise(res=>{let last=performance.now();
+  const step=(nw,md)=>{last=performance.now();const t=md.mediaTime;if(t>b||cancel){vid.pause();res();return}
+   try{feed(vid,t)}catch(e){}$('#prog').value=(t-a)/(b-a);vid.requestVideoFrameCallback(step)};
+  vid.requestVideoFrameCallback(step);vid.play().catch(()=>res());
+  wd=setInterval(()=>{if(performance.now()-last>5000){vid.pause();res()}},1000);vid.onended=()=>res()});
+ clearInterval(wd);vid.onended=null;vid.pause();
+ try{wl&&wl.release()}catch(e){}
+ $('#prog').hidden=true;detect();
+ $('#info').textContent=`${cancel?'Avbröts.':'Klart.'} ${T.length} bildrutor på ${Math.round((performance.now()-t0)/1000)} s. Hittade ${shots.length} skott. Ta bort felaktiga med ✕.`;
+ delete $('#run').dataset.busy;$('#run').textContent='Analysera filmen';render()};
+const aScreen=new Map(),aLvl=new Map();let fastNote='',tScreen=0,tDetail=0,curFile=null,aCands=null,aRep=[],winRep=[],rateStart=1,rateEnd=1,playErr='';
+$('#file').addEventListener('change',e=>{curFile=e.target.files[0]||null});
+function playRange(a,b,ta,rate,scr){return new Promise(async res=>{prev=null;let last=performance.now(),wd,c=0,miss=0,pf=-1,chk=false,early=false,firstT=-1;
+ const end=()=>{clearInterval(wd);vid.pause();vid.onended=null;res({c,miss,early,seekOk:firstT>=0&&Math.abs(firstT-a)<.5})};
+ await new Promise(r=>{let done=false;const fin=()=>{if(done)return;done=true;vid.removeEventListener('seeked',h);clearInterval(pi);r()};const h=()=>{if(!vid.seeking&&Math.abs(vid.currentTime-a)<.3)fin()};vid.addEventListener('seeked',h);vid.currentTime=a;const pi=setInterval(h,150);setTimeout(fin,9000)});
+ vid.playbackRate=rate;
+ const step=(n,md)=>{last=performance.now();
+  if(md.mediaTime>b||cancel){end();return}
+  if(md.mediaTime>=a-.001){try{feed(vid,md.mediaTime);c++;if(firstT<0)firstT=md.mediaTime}catch(e){}
+   if(md.presentedFrames!==undefined){if(pf>=0)miss+=Math.max(0,md.presentedFrames-pf-1);pf=md.presentedFrames}}
+  if(!scr&&!chk&&md.mediaTime>=ta+.3){chk=true;const r=assess(ta,relMot(),+$('#sens').value/100,true);if(!r.ok&&!r.nodata){early=true;end();return}}
+  vid.requestVideoFrameCallback(step)};
+ vid.requestVideoFrameCallback(step);vid.play().catch(e=>{playErr=(e&&e.name)||'fel';end()});
+ wd=setInterval(()=>{if(performance.now()-last>(scr?2500:5000))end()},1000);vid.onended=()=>end()})}
+async function audioCandidates(file){
+ const buf=await file.arrayBuffer(),ac=new (window.AudioContext||window.webkitAudioContext)();try{await ac.resume()}catch(e){}
+ const ab=await new Promise((ok,no)=>{const p=ac.decodeAudioData(buf,ok,no);if(p&&p.catch)p.catch(no)});ac.close();
+ const d=ab.getChannelData(0),w=Math.round(ab.sampleRate*.01),n=Math.floor(d.length/w),e=new Float32Array(n);
+ for(let i=0;i<n;i++){let s=0;for(let j=i*w;j<(i+1)*w;j++)s+=d[j]*d[j];e[i]=Math.sqrt(s/w)}
+ const med=[...e].sort((x,y)=>x-y)[n>>1],out=[];aLvl.clear();
+ for(let i=100;i<n;i++){const a=[];for(let j=i-100;j<i-10;j+=3)a.push(e[j]);a.sort((x,y)=>x-y);
+  if(e[i]>Math.max(4*a[a.length>>1],3*med+.002)&&(!out.length||i*.01-out[out.length-1]>1.5)){out.push(i*.01);let mx=0;for(let j=i;j<Math.min(n,i+30);j++)mx=Math.max(mx,e[j]);aLvl.set(i*.01,mx)}}
+ return out}
+function relMot(){return T.map((_,i)=>Math.hypot(rx[i]-gx[i],ry[i]-gy[i]))}
+function assess(ta,m,floor,early){const n=T.length,R=+$('#strict').value;let bm=0,any=0;
+ for(let i=0;i<n;i++)if(T[i]>=ta-.3&&T[i]<=ta+.3){any++;if(m[i]>bm)bm=m[i]}
+ if(!any)return{ok:false,nodata:true,reason:'inga bildrutor analyserades vid knallen'};
+ if(!bm)return{ok:false,nodata:true,reason:`${any} bildrutor men ingen rörelse mätt (kontrollera markeringen)`};
+ let bi=0;for(let i=0;i<n;i++)if(T[i]>=ta-.3&&T[i]<=ta+.3&&m[i]>=.5*bm){bi=i;break}
+ const t=T[bi];let pm=0,ps=0,pn=0;
+ for(let i=0;i<n;i++){if(T[i]>t-.9&&T[i]<t-.25)pm=Math.max(pm,m[i]);if(T[i]>t+.25&&T[i]<t+.7){ps+=m[i];pn++}}
+ const post=pn?ps/pn:0,info=`topp ${f2(bm)}, innan ${f2(pm)}`+(pn>=5?`, efter ${f2(post)}`:'');
+ if(bm<floor)return{ok:false,reason:`för svag rörelse i sikte/pipa (${info}, gräns ${f2(floor)})`};
+ if(pm>R*bm)return{ok:false,reason:`rörelse före knallen, skytten var inte stilla (${info})`};
+ if(!early&&pn>=5&&post>R*bm)return{ok:false,reason:`utdragen rörelse efter knallen, ser inte ut som rekyl (${info})`};
+ return{ok:true,t,info}}
+function detectAudio(cands){const m=relMot(),floor=+$('#sens').value/100;aRep=[];let add=false;
+ cands.forEach(ta=>{if(aScreen.has(ta)){aRep.push([ta,aScreen.get(ta)]);return}const r=assess(ta,m,floor,false);
+  if(!r.ok){aRep.push([ta,r.reason]);return}
+  const tr=track(r.t);if(!tr){aRep.push([ta,'för få bilder runt knallen']);return}
+  shots.push({t:r.t,tr,score:''});add=true;aRep.push([ta,`skott (${r.info})`])});
+ shots.sort((a,b)=>a.t-b.t);return add}
+function showDbg(c){let mxl=0;aLvl.forEach(v=>{mxl=Math.max(mxl,v)});const ms=winRep.reduce((s,w)=>s+w[2],0),ea=winRep.filter(w=>w[3]).length;
+ $('#dbg').hidden=false;$('#dbgt').textContent=`${c.length} ljudknallar. Bildrutor analyserade: ${T.length}${T.length?` (${f2(T[0])}–${f2(T[T.length-1])} s)`:''}. Missade bildrutor: ${ms} (${T.length?Math.round(100*ms/(ms+T.length)):0} %). Tid: ${Math.round(tDetail)} s. Hastighet: ${f2(rateStart)}× → ${f2(rateEnd)}×. Fönster som avbröts tidigt på grund av rörelse: ${ea}. Fönster utan bildrutor: ${winRep.filter(w=>!w[1]).length}. Hopp som inte hamnade rätt: ${winRep.filter(w=>w[4]===false).length} av ${winRep.length}. Uppspelning avvisad: ${playErr||'nej'}. Sökbart intervall: ${vid.seekable&&vid.seekable.length?f2(vid.seekable.end(vid.seekable.length-1)):'okänt'} av ${isFinite(vid.duration)?f2(vid.duration):'okänt'} s.\n`+aRep.map(r=>`${f2(r[0])} s: ${r[1]}${aLvl.has(r[0])?` · ljud ${Math.round(100*aLvl.get(r[0])/(mxl||1))} %`:''}`).join('\n')}
+$('#aud').onclick=async()=>{
+ if(live||!curFile){$('#info').textContent='Välj en videofil först.';return}
+ if(!roi){$('#hint').textContent='Markera först korn/sikte genom att trycka på det i bilden.';return}
+ const bt=$('#aud');if(bt.dataset.busy){cancel=true;return}
+ bt.dataset.busy=1;bt.textContent='Avbryt';cancel=false;reset();winRep=[];playErr='';fastNote='';tScreen=0;tDetail=0;$('#res').hidden=true;$('#prog').hidden=false;$('#prog').value=0;
+ const t0=performance.now();let wl=null,c=[],msg='';try{wl=await navigator.wakeLock.request('screen')}catch(e){}
+ try{$('#info').textContent='Läser ljudet…';c=await audioCandidates(curFile);aCands=c;
+  const dur=isFinite(vid.duration)?vid.duration:1e9;const keep=c.slice();const tB=performance.now();
+  let rate=+$('#aspd').value||1,lastEnd=-1;rateStart=rate;rateEnd=rate;
+  for(let i=0;i<keep.length&&!cancel;i++){const ta=keep[i];$('#prog').value=i/keep.length;$('#info').textContent=`Analyserar knall ${i+1} av ${keep.length} i detalj (${Math.round((performance.now()-t0)/1000)} s)…`;
+   const a=Math.max(0,ta-.9,lastEnd),b=Math.min(dur,ta+1.1);if(a>=b-.2){winRep.push([ta,1,0,false]);continue}
+   const n0=T.length;let s=await playRange(a,b,ta,rate);
+   while(!cancel&&rate>.25&&s.c+s.miss>8&&s.miss/(s.c+s.miss)>.1){[T,gx,gy,rx,ry].forEach(x=>x.length=n0);rate=Math.max(.25,rate/2);rateEnd=rate;s=await playRange(a,b,ta,rate)}
+   if(T.length)lastEnd=T[T.length-1]+.004;
+   winRep.push([ta,T.length-n0,s.miss,s.early,s.seekOk])}
+  tDetail=(performance.now()-tB)/1000;
+ }catch(e){msg='Ljudanalysen misslyckades ('+((e&&(e.name+' '+(e.message||'')))||'okänt fel')+', fil '+Math.round(curFile.size/1e6)+' MB). Prova Analysera filmen i stället.'}
+ try{wl&&wl.release()}catch(e){}
+ vid.onended=null;vid.pause();$('#prog').hidden=true;detectAudio(aCands||[]);showDbg(c);
+ $('#info').textContent=msg||`${cancel?'Avbröts.':'Klart'} på ${Math.round((performance.now()-t0)/1000)} s. ${c.length} ljudknallar, varav ${shots.length} bekräftades som skott i bilden. Se "Ljudknallar och bedömning" nedan för varje knall.`;
+ delete bt.dataset.busy;bt.textContent='Hitta skott via ljud';render()};
+$('#strict').onchange=()=>$('#sens').oninput();
+addEventListener('resize',()=>{if(shots.length)draw(stats())});
+loadSaved();
+</script></body></html>
