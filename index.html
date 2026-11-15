@@ -29,7 +29,7 @@ canvas{width:100%;display:block;border:1px solid var(--line);border-radius:8px;m
 <p class="sub">Hittar skotten i en film, tar bort kamerans rörelse och lägger rekylerna ovanpå varandra. Allt körs i webbläsaren, ingenting laddas upp.</p>
 <section>
 <div class="row"><label class="btn p" style="position:relative;overflow:hidden">Välj video<input id="file" type="file" accept="video/*,.mp4,.mov" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:0"></label><button id="live">Live-kamera</button></div>
-<div class="row" id="lrow"><span class="hint">Live-kamera:</span> bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · upplösning <select id="lres" style="min-height:40px"><option value="640">640</option><option value="1280" selected>1280</option><option value="1920">1920</option></select> · kamera <select id="lcam" style="min-height:40px;max-width:180px"><option value="">Bakkamera</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
+<div class="row" id="lrow"><span class="hint">Live-kamera:</span> <label><input type="checkbox" id="lrec" checked> spara klipp</label> · bilder/s <select id="lfps" style="min-height:40px"><option value="30">30</option><option value="60" selected>60</option><option value="120">120</option></select> · upplösning <select id="lres" style="min-height:40px"><option value="640">640</option><option value="1280" selected>1280</option><option value="1920">1920</option></select> · kamera <select id="lcam" style="min-height:40px;max-width:180px"><option value="">Bakkamera</option></select> · ljudgräns <select id="lthr" style="min-height:40px"><option value="0.02">känslig</option><option value="0.04" selected>normal</option><option value="0.1">hög</option></select></div>
 <div class="row" id="lzrow" hidden>Zoom <input type="range" id="lzoom" min="1" max="10" step="0.1" value="1"> <b id="lzv">1×</b></div>
 <div class="hint" id="nocam" hidden></div>
 <div id="stage" hidden>
@@ -164,14 +164,14 @@ async function dlClip(i){const c=await clipBlob(i);if(!c)return;const u=URL.crea
 let LV=null,wakeL=null;
 function nocam(e){const inFrame=window.top!==window.self;
  $('#nocam').hidden=false;$('#nocam').innerHTML=inFrame?'<b>Kameran är blockerad här.</b> Live-läget kan inte köras inbäddat på claude.ai. Öppna filen <b>rekyl-live.html</b> direkt i webbläsaren (Chrome eller Safari) så fungerar kameran och mikrofonen.':'<b>Kameran eller mikrofonen kunde inte startas'+(e&&e.name?' ('+e.name+')':'')+'.</b> Tillåt kamera och mikrofon för sidan i webbläsaren. Sidan måste vara öppnad via https:// eller som en lokal fil.'}
-const pickMime=()=>{try{return['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'].find(m=>MediaRecorder.isTypeSupported(m))||''}catch(e){return''}};
-function startSeg(){if(!live||!LV)return;const t=performance.now()/1000,seg={s:t,e:t+6,chunks:[],keep:null};let rec;
- try{rec=new MediaRecorder(LV.stream,LV.mime?{mimeType:LV.mime,videoBitsPerSecond:3e6}:{})}catch(e){LV.recErr='Kan inte spela in klipp: '+e.message;return}
+const pickMime=()=>{try{return['video/webm;codecs=h264,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4','video/webm;codecs=vp9,opus'].find(m=>MediaRecorder.isTypeSupported(m))||''}catch(e){return''}};
+function startSeg(){if(!live||!LV||!$('#lrec').checked)return;const t=performance.now()/1000,seg={s:t,e:t+6,chunks:[],keep:null};let rec;
+ try{rec=new MediaRecorder(LV.stream,LV.mime?{mimeType:LV.mime,videoBitsPerSecond:2e6}:{})}catch(e){LV.recErr='Kan inte spela in klipp: '+e.message;return}
  rec.ondataavailable=e=>{if(e.data&&e.data.size)seg.chunks.push(e.data)};
  rec.onstop=()=>{if(LV)LV.segs=LV.segs.filter(x=>x!==seg);if(seg.keep)saveClip(seg)};
  try{rec.start(1000)}catch(e){LV.recErr='Kan inte spela in klipp: '+e.message;return}
  seg.rec=rec;LV.segs.push(seg);setTimeout(()=>{try{if(rec.state!=='inactive')rec.stop()}catch(e){}},6000)}
-async function saveClip(seg){const sh=seg.keep,mime=seg.rec.mimeType||'video/webm',blob=new Blob(seg.chunks,{type:mime});
+async function saveClip(seg){const sh=seg.keep,mime=(seg.rec.mimeType||'video/webm').replace('x-matroska','webm'),blob=new Blob(seg.chunks,{type:mime});
  try{await idbUpd(sh.id,r=>{r.blob=blob;r.mime=mime;return r});sh.clip=true}catch(e){sh.blob=blob;sh.mime=mime}
  const k=shots.indexOf(sh);if(k>=0)render()}
 function evalBang(tb){const r=assess(tb,relMot(),+$('#sens').value/100,false);
